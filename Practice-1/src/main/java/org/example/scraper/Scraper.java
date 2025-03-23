@@ -1,6 +1,8 @@
 package org.example.scraper;
 import org.example.models.BookReview;
+import org.example.models.InternetMagazine;
 import org.example.models.Product;
+import org.example.models.ReviewMagazine;
 import  org.jsoup.*;
 import org.jsoup.nodes.*;
 import org.jsoup.select.*;
@@ -11,13 +13,23 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.URL;
 import java.net.URLConnection;
+
 public class Scraper {
 
-    public List<Product> getDataProduct() {
+    final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+    private Document getDocuments(String url){
         try {
-            Document doc  = Jsoup.connect("https://webscraper.io/test-sites/e-commerce/allinone/computers/laptops").
-                userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36").
-                header("Accept-Language", "*").get();
+            return Jsoup.connect(url).
+                    userAgent(USER_AGENT).
+                    header("Accept-Language", "*").get();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+    public List<Product> getDataProduct()  {
+        try {
+            Document doc  = getDocuments("https://webscraper.io/test-sites/e-commerce/allinone/computers/laptops");
 
             Elements productElements = doc.select("div.card.thumbnail");
             List<Product> result = new ArrayList<>();
@@ -52,7 +64,7 @@ public class Scraper {
             }
             return result;
 
-        }catch (IOException e){
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
@@ -62,9 +74,7 @@ public class Scraper {
             int page = 2;
             List<BookReview> result = new ArrayList<>();
             while (true){
-                Document doc  = Jsoup.connect("https://iknigi.net/otzivi-na-knigi/page/"+page+"/").
-                        userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36").
-                        header("Accept-Language", "*").get();
+                Document doc  = getDocuments("https://iknigi.net/otzivi-na-knigi/page/"+page+"/");
 
                 Element commentsList = doc.selectFirst("div#dle-comments-list");
 
@@ -72,7 +82,7 @@ public class Scraper {
                     Elements reviewElements = commentsList.select("div[id^=comment-id-]");
 
                     if (reviewElements.isEmpty()) {
-                        System.out.println("Nenhuma resenha encontrada na página " + page);
+                        System.out.println("The revirew elements is empty. " + page);
                         break;
                     }
 
@@ -103,7 +113,7 @@ public class Scraper {
                         result.add(review);
                     }
                 } else {
-                    System.out.println("Div 'dle-comments-list' não encontrada!");
+                    System.out.println("Selector on Div 'dle-comments-list' not found!");
                 }
                 if (page == 10){
                     break;
@@ -111,11 +121,10 @@ public class Scraper {
                 page++;
             }
             return result;
-        }catch (IOException e){
+        }catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
-
 
     public void donwloadImage(String urlImage, String destinationFolder){
         try {
@@ -138,17 +147,89 @@ public class Scraper {
         }
     }
 
+    public List<InternetMagazine> getDataInternetMagazine(){
+        try {
+            int page = 1;
+            List<InternetMagazine> result = new ArrayList<>();
 
-    private  String bytesToHex(byte[] bytes) {
-        StringBuilder hexString = new StringBuilder();
-        for (byte b : bytes) {
-            String hex = Integer.toHexString(0xff & b);
-            if (hex.length() == 1) {
-                hexString.append('0');
+            while (true){
+                Document doc = getDocuments("https://na-negative.ru/internet-magaziny?page="+page+"/");
+
+                Elements productElements = doc.select("div.find-list-box");
+
+                for (Element element : productElements){
+                    InternetMagazine magazine = new InternetMagazine();
+                    List<ReviewMagazine> reviewsList = new ArrayList<>();
+
+                    String name = removePrefix( element.select("a.ss").text());
+                    int reviewsCount = Integer.parseInt(element.select("span.num").text());
+                    String urlMagazine  = "https://na-negative.ru"+element.select("div.find-list-box a.ss").first().attr("href");
+
+
+                    for (int i = 0; i < 5; i++) {
+                        Document getInfoMagazinePage = getDocuments(urlMagazine+"?page="+i);
+
+                        Elements reviewElements = getInfoMagazinePage.select("div.reviewers-box");
+
+                        for (Element reviewElement : reviewElements) {
+                            ReviewMagazine review = new ReviewMagazine();
+
+                            int id = reviewElements.indexOf(reviewElement);
+                            String text = reviewElement.select("table[itemprop=\"description\"] tbody tr td[itemprop=\"reviewBody\"]").text();
+                            int rating = Integer.parseInt(reviewElement.select("header.head span.info span[itemprop=\"reviewRating\"] span[itemprop=\"ratingValue\"]").text());
+                            String author = reviewElement.select("header.head span.info span[itemprop=\"author\"]").text();
+                            String date = reviewElement.select("header.head span.info meta[itemprop=\"datePublished\"]").attr("content");
+                            List<String> pros = new ArrayList<>();
+                            List<String> cons = new ArrayList<>();
+
+                            Elements prosElements = reviewElement.select("table[itemprop=\"description\"] tbody tr td[itemprop=\"pro\"]");
+                            for (Element prosElement : prosElements) {
+                                pros.add(prosElement.text());
+                            }
+
+                            Elements consElements = reviewElement.select("table[itemprop=\"description\"] tbody tr td[itemprop=\"contra\"]");
+                            for (Element consElement : consElements) {
+                                cons.add(consElement.text());
+                            }
+
+                            review.setId(id);
+                            review.setAuthor(author);
+                            review.setRating(rating);
+                            review.setDate(date);
+                            review.setPros(pros);
+                            review.setCons(cons);
+                            review.setText(text);
+
+                            reviewsList.add(review);
+                        }
+                    }
+
+                    magazine.setName(name);
+                    magazine.setAverageRating(reviewsCount);
+                    magazine.setUrlMagazine(urlMagazine);
+                    magazine.setReviews(reviewsList);
+
+                    result.add(magazine);
+                }
+                if (page == 1){
+                    break;
+                }
+                page++;
             }
-            hexString.append(hex);
+
+            return result;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
-        return hexString.toString();
+    }
+
+    public String removePrefix(String input) {
+        String prefixo = "Отзывы о ";
+        if (input.startsWith(prefixo)) {
+            return input.substring(prefixo.length());
+        } else {
+            return input;
+        }
     }
 }
 
